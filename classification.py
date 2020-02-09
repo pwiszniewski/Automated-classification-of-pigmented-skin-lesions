@@ -24,9 +24,10 @@ from sklearn.linear_model import SGDClassifier
 from sklearn.feature_selection import SelectKBest
 from sklearn.feature_selection import chi2
 
+from xgboost import XGBClassifier
 
 def prepare_dataframes(part=False):
-    df_org = pd.read_csv("data/HAM10000_metadata_params_21012020.csv", index_col=0) 
+    df_org = pd.read_csv("data/HAM10000_metadata_params_21012020_1.csv", index_col=0) 
     from sklearn.utils import shuffle
     if part:
         gb = df_org.groupby('dx')    
@@ -54,7 +55,7 @@ def prepare_X_y(df, auto=True, norm=True):
         # model = SelectFromModel(clf, prefit=True, max_features=24)
         # X_arr = model.transform(X)
 
-        model = SelectKBest(k=5)
+        model = SelectKBest(k=25)
         X_arr = model.fit_transform(X,y)
         feature_idx = model.get_support()
         print(feature_idx)
@@ -124,6 +125,10 @@ def search_best_model(X_train, y_train, model='svc', cv=5):
         # best_params = grid_search.best_params_
         best_params = {'alpha': 0.001, 'loss': 'log', 'max_iter': 1000}
         best_model = SGDClassifier(**best_params)
+    elif model == 'xgb':
+        parameters = {}
+        grid_search = GridSearchCV(XGBClassifier(), param_grid=parameters, scoring='balanced_accuracy', cv=cv)
+        best_model = XGBClassifier()
     else:
         print('no model found')
         return None, None
