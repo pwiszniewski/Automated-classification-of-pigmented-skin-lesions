@@ -31,7 +31,10 @@ df.boxplot(by='dx',
             column=features, 
             grid=False,
            ax=ax)
-
+df.hist(by=features, 
+            column='dx', 
+            grid=False,
+           ax=ax)
 plt.figure(figsize=(20,10))
 df = df[['dx', *features]]
 df =  pd.get_dummies(df, prefix_sep='_', columns=['dx'])

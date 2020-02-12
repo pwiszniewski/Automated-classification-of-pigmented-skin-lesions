@@ -194,7 +194,7 @@ print(y_test.groupby(y_test).count())
 clf, gs = search_best_model(X_train, y_train, model='svc')
 # clf = SGDClassifier(class_weight='balanced')
 # clf = DecisionTreeClassifier()
-pred, classes = classify(clf, X_train, y_train, X_test, cross_val=False)
+pred, classes = classify(clf, X_train, y_train, X_test, cross_val=True)
 acc, precision, recall, f_score, cm, cmn = calculate_metrics(pred)
 print(f'Accuracy:  {acc:.2f}\nPrecision: {precision.mean():.2f} {precision}\n\
 Recall:    {recall.mean():.2f} {recall}\nF1_score:  {f_score.mean():.2f} {f_score}')
