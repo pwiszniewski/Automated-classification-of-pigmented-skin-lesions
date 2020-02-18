@@ -50,126 +50,82 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data.dataset import Dataset
 
-def prepare_dataframes(part=False):
-    df_org = pd.read_csv("data/HAM10000_metadata_params_21012020_1.csv", index_col=0) 
-    from sklearn.utils import shuffle
-    if part:
-        
-        gb = df_org.groupby('dx')    
-        df_gb = [gb.get_group(x)[:100] for x in gb.groups]
-        # df_gb = [gb.get_group(x)[:100] for x in gb.groups]
-        df = pd.concat(df_gb)
-    else:
-        df = df_org
-    df = shuffle(df)
-    #print(df.groupby('dx').count())
-    #df = df[:100]
-    # df = df.iloc[:, 3:]
-    df = df.drop(['lesion_id', 'image_id', 'dx_type', 'age', 'sex', 'localization'], axis=1)
-#    df = 
-    return df_org, df
+class DatasetFromImages(Dataset):
+    def __init__(self, data_frame, img_dir, transforms=None):
+        """
+        Args:
+            csv_path (string): path to csv file
+            img_path (string): path to the folder where images are
+            transform: pytorch transforms for transforms and tensor conversion
+        """
+        # Transforms
+        self.transforms = transforms
+        # Read the csv file
+        self.data_info = data_frame
+        self.image_arr = np.asarray(img_dir+'/'+self.data_info['image_id']+'.jpg')
+        self.label_arr = np.asarray(self.data_info['dx'])
+        self.classes = set(self.label_arr)
+        # Calculate len
+        self.data_len = len(self.label_arr)
 
-def prepare_X_y(df, auto=True, norm=True):
-    y = df['dx']
-    if auto:
-        X = df.iloc[:, 1:]
-#        X['sex'] = pd.get_dummies(X['sex'], prefix_sep='_', drop_first=True)
-#        X = pd.get_dummies(X, prefix_sep='_', drop_first=False)
-        
-        # clf = LinearSVC(C=1.5, penalty="l1", class_weight='balanced', dual=False).fit(X, y)
-        # model = SelectFromModel(clf, prefit=True, max_features=24)
-        # X_arr = model.transform(X)
+    def __getitem__(self, index):
+        # Get image name from the pandas df
+        single_image_name = self.image_arr[index]
+        # Open image
+        img_as_img = Image.open(single_image_name)
+        # Transform image to tensor
+        if self.transforms is not None:
+            img_as_tensor = self.transforms(img_as_img)
+        # Get label
+        single_image_label = self.label_arr[index]
+        return (img_as_tensor, single_image_label)
 
-        model = SelectKBest(k=25)
-        X_arr = model.fit_transform(X,y)
-        feature_idx = model.get_support()
-        print(feature_idx)
-        feature_names = X.columns[feature_idx]
-        X = pd.DataFrame(X_arr, columns=feature_names)
-    else:
-        X = df[['hu2', 'hu3', 'max_area',
-       'circ_area_ratio', 'perimeter', 'min_maj_ell_ratio',
-       'mean_blue', 'mean_green', 'mean_red', 'mean_gray', 'mean_hue',
-       'var_blue', 'var_green', 'var_red', 'var_gray', 'var_hue', 'skew_blue',
-       'skew_green', 'skew_red', 'skew_gray']]
-#        X = df[['hu0', 'hu1', 'hu2', 'hu3', 'max_area',
-#       'circ_area_ratio', 'perimeter', 'min_maj_ell_ratio', 'perimeter_ratio',
-#       'mean_blue', 'mean_green', 'mean_red', 'mean_gray', 'mean_hue',
-#       'var_blue', 'var_green', 'var_red', 'var_gray', 'var_hue', 'skew_blue',
-#       'skew_green', 'skew_red', 'skew_gray']]
-#        X = df.iloc[:, 1:5] #X = df.iloc[:, 1:9]
-#        X['sex'] = pd.get_dummies(X['sex'], prefix_sep='_', drop_first=True)
-#        X = pd.get_dummies(X, prefix_sep='_', drop_first=False)
-    def normalize(df, columns):
-        for feature_name in columns:
-            max_value = df[feature_name].max()
-            min_value = df[feature_name].min()
-            df[feature_name] = (df[feature_name] - min_value) / (max_value - min_value)
-    if norm:
-        num_cols = X.columns[X.dtypes.apply(lambda c: np.issubdtype(c, np.number))]
-        X[num_cols] = preprocessing.StandardScaler().fit_transform(X[num_cols])
-        # normalize(X, num_cols)
-    return X, y
-
-def search_best_model(X_train, y_train, model='svc', cv=5):
-    # if model == 'tree':
-    #     parameters = {'criterion': ['entropy', 'gini'],
-    #               'min_samples_split': [5*x for x in range(1,15,2)],
-    #               'min_samples_leaf': [2*x+1 for x in range(14)],
-    #               'max_leaf_nodes': [2*x for x in range(1, 9)],
-    #               'max_depth': [2*x for x in range(1,9)]}
-    #     grid_search = GridSearchCV(DecisionTreeClassifier(random_state=71830), param_grid=parameters, cv=3)
-    #     grid_search.fit(X_train, y_train)
-    #     print(grid_search.best_params_)
-    #     best_model = DecisionTreeClassifier(**grid_search.best_params_)
-    if model == 'svc':
-        parameters = {'kernel': ['linear', 'poly', 'rbf', 'sigmoid'],
-                  'gamma': ['scale', 'auto'],
-                  # 'C': [0.5, 1, 1.5, 2, 2.5]}
-                   'C': [x for x in np.arange(0.5,3,0.5)],
-                   'class_weight': ['balanced']}
-        grid_search = GridSearchCV(SVC(), param_grid=parameters, scoring='balanced_accuracy', cv=cv)
-        # grid_search.fit(X_train, y_train)
-        # print(grid_search.best_params_)
-        # best_params = {'C': 2, 'gamma': 'scale', 'kernel': 'rbf'}
-#        best_params = {'C': 4.4, 'class_weight': 'balanced', 'gamma': 'scale', 'kernel': 'rbf'} #gc
-#        best_params = {'C': 1.5, 'class_weight': 'balanced', 'gamma': 'auto', 'kernel': 'rbf'}
-        best_params = {'C': 4.4, 'class_weight': 'balanced', 'gamma': 'scale', 'kernel': 'rbf'}
-        # best_params = grid_search.best_params_
-        best_model = SVC(**best_params)
-    elif model == 'sgd':
-        parameters = {'loss': ['hinge', 'log', 'modified_huber', 'squared_hinge', 
-                                 'perceptron', 'squared_loss', 'huber', 
-                                 'epsilon_insensitive', 'squared_epsilon_insensitive'],
-                      'alpha': [10.0**x for x in -np.arange(1,7)],
-                      'class_weight': ['balanced']}
-        grid_search = GridSearchCV(SGDClassifier(), param_grid=parameters, scoring='balanced_accuracy', cv=cv)
-        # grid_search.fit(X_train, y_train)
-        # print(sorted(grid_search.cv_results_.keys()))
-        # print(grid_search.best_params_)
-        # best_params = grid_search.best_params_
-        best_params = {'alpha': 0.001, 'loss': 'log', 'max_iter': 1000}
-        best_model = SGDClassifier(**best_params)
-    elif model == 'xgb':
-        parameters = {}
-        grid_search = GridSearchCV(XGBClassifier(), param_grid=parameters, scoring='balanced_accuracy', cv=cv)
-        best_model = XGBClassifier()
-    else:
-        print('no model found')
-        return None, None
-    return best_model, grid_search
+    def __len__(self):
+        return self.data_len
     
+    
+def prepare_datasets():
+    img_dir = 'images'
+    csv_path = 'data/HAM10000_metadata.csv'
+    df = pd.read_csv(csv_path)
+    train_df, test_df = train_test_split(df, test_size=0.2)
+    df_dict = {'train': train_df, 'test': test_df}
+    
+    data_transforms = {
+        'train': transforms.Compose([
+            transforms.RandomRotation(30),
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], 
+                                 [0.229, 0.224, 0.225])
+        ]),
+        'test': transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], 
+                                 [0.229, 0.224, 0.225])
+        ])
+    }
+    
+    # Load the datasets with ImageFolder
+    image_datasets = {x: DatasetFromImages(df_dict[x], img_dir, data_transforms[x])  \
+                      for x in ['train', 'test']}
+    
+    # Using the image datasets and the trainforms, define the dataloaders
+    batch_size = 64
+    dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=batch_size,
+                                                 shuffle=True, num_workers=0)
+                  for x in ['train', 'test']}
+    
+    class_names = image_datasets['train'].classes
+    dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'test']}
+    
+    return image_datasets, dataloaders, class_names, dataset_sizes
     
 def classify(clf, X_train, y_train, X_test, cross_val=True):
-    # clf = SVC(C=0.91, kernel='rbf', gamma='scale', class_weight='balanced')
-    # clf = DecisionTreeClassifier(random_state=71830)
-    if cross_val:
-        scores = cross_val_score(clf, X, y, cv=5)
-        print('--> ', scores)
-        print("Cross validation accuracy: %0.2f (+/- %0.2f)" % (scores.mean(), scores.std() * 2))
-    clf.fit(X_train, y_train)
-    pred = clf.predict(X_test)
-    return pred, clf.classes_
+    pass
 
 def calculate_metrics(pred):
     cm = confusion_matrix(y_test, pred)
@@ -189,45 +145,12 @@ def show_confusion_matrix(cm, classes):
     plt.title('Confusion Matrix')
     # plt.imshow(cm, cmap='binary')
     
+if __name__ == '__main__':
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    image_datasets, dataloaders, class_names, dataset_sizes = prepare_datasets()
     
-class DatasetFromImages(Dataset):
-    def __init__(self, csv_path, img_dir):
-        """
-        Args:
-            csv_path (string): path to csv file
-            img_path (string): path to the folder where images are
-            transform: pytorch transforms for transforms and tensor conversion
-        """
-        # Transforms
-        self.to_tensor = transforms.ToTensor()
-        # Read the csv file
-        self.data_info = pd.read_csv(csv_path)
-        self.image_arr = np.asarray(self.data_info['image_id'])
-        self.label_arr = np.asarray(self.data_info['dx'])
-        # Calculate len
-        self.data_len = len(self.label_arr)
+    images, labels = next(iter(dataloaders['test']))
 
-    def __getitem__(self, index):
-        # Get image name from the pandas df
-        single_image_name = self.image_arr[index]
-        # Open image
-        img_as_img = Image.open(single_image_name)
-        # Transform image to tensor
-        img_as_tensor = self.to_tensor(img_as_img)
-        # Get label
-        single_image_label = self.label_arr[index]
-        return (img_as_tensor, single_image_label)
-
-    def __len__(self):
-        return self.data_len
-    
-    
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-img_dir = 'images'
-csv_path = 'data/HAM10000_metadata.csv'
-
-dataset =  DatasetFromImages(csv_path, img_dir)
 
 
 
