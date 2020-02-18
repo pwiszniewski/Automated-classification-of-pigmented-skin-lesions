@@ -23,6 +23,7 @@ from sklearn.svm import LinearSVC
 from sklearn.linear_model import SGDClassifier
 from sklearn.feature_selection import SelectKBest
 from sklearn.feature_selection import chi2
+from sklearn.preprocessing import LabelEncoder
 
 from xgboost import XGBClassifier
 
@@ -63,10 +64,17 @@ class DatasetFromImages(Dataset):
         # Read the csv file
         self.data_info = data_frame
         self.image_arr = np.asarray(img_dir+'/'+self.data_info['image_id']+'.jpg')
-        self.label_arr = np.asarray(self.data_info['dx'])
-        self.classes = set(self.label_arr)
+        
+        self.encoder = preprocessing.LabelEncoder()
+        self.label_arr = torch.from_numpy(self.encoder.fit_transform(self.data_info['dx'])).long()
+        self.classes = self.encoder.classes_
+        # self.label_arr = np.asarray(self.data_info['dx'])
+        # self.classes = set(self.label_arr)
+        # # mlb = MultiLabelBinarizer()
+        # # self.label_arr = mlb.fit_transform(self.label_arr)
+        # self.label_arr =  torch.from_numpy(np.asarray([i%7 for i in range(len(self.label_arr))])).long()
         # Calculate len
-        self.data_len = len(self.label_arr)
+        self.data_len = len(self.data_info)
 
     def __getitem__(self, index):
         # Get image name from the pandas df
@@ -149,7 +157,139 @@ if __name__ == '__main__':
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     image_datasets, dataloaders, class_names, dataset_sizes = prepare_datasets()
     
-    images, labels = next(iter(dataloaders['test']))
+    images, labels = next(iter(dataloaders['train']))
+    
+    model_name = 'densenet' #vgg
+    if model_name == 'densenet':
+        model = models.densenet161(pretrained=True)
+        num_in_features = 2208
+        print(model)
+    elif model_name == 'vgg':
+        model = models.vgg19(pretrained=True)
+        num_in_features = 25088
+        print(model.classifier)
+    else:
+        print("Unknown model, please choose 'densenet' or 'vgg'")
+        
+
+    # Create classifier
+    for param in model.parameters():
+        param.requires_grad = False
+    
+    def build_classifier(num_in_features, hidden_layers, num_out_features):
+       
+        classifier = nn.Sequential()
+        if hidden_layers == None:
+            classifier.add_module('fc0', nn.Linear(num_in_features, 102))
+        else:
+            layer_sizes = zip(hidden_layers[:-1], hidden_layers[1:])
+            classifier.add_module('fc0', nn.Linear(num_in_features, hidden_layers[0]))
+            classifier.add_module('relu0', nn.ReLU())
+            classifier.add_module('drop0', nn.Dropout(.6))
+            classifier.add_module('relu1', nn.ReLU())
+            classifier.add_module('drop1', nn.Dropout(.5))
+            for i, (h1, h2) in enumerate(layer_sizes):
+                classifier.add_module('fc'+str(i+1), nn.Linear(h1, h2))
+                classifier.add_module('relu'+str(i+1), nn.ReLU())
+                classifier.add_module('drop'+str(i+1), nn.Dropout(.5))
+            classifier.add_module('output', nn.Linear(hidden_layers[-1], num_out_features))
+            
+        return classifier
+    
+    hidden_layers = None#[4096, 1024, 256][512, 256, 128]
+
+    classifier = build_classifier(num_in_features, hidden_layers, 102)
+    print(classifier)
+    
+     # Only train the classifier parameters, feature parameters are frozen
+    if model_name == 'densenet':
+        model.classifier = classifier
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adadelta(model.parameters()) # Adadelta #weight optim.Adam(model.parameters(), lr=0.001, momentum=0.9)
+        #optimizer_conv = optim.SGD(model.parameters(), lr=0.0001, weight_decay=0.001, momentum=0.9)
+        sched = optim.lr_scheduler.StepLR(optimizer, step_size=4)
+    elif model_name == 'vgg':
+        model.classifier = classifier
+        criterion = nn.NLLLoss()
+        optimizer = optim.Adam(model.classifier.parameters(), lr=0.0001)
+        sched = lr_scheduler.StepLR(optimizer, step_size=4, gamma=0.1)
+    else:
+        pass
+
+    def train_model(model, criterion, optimizer, sched, num_epochs=5):
+        since = time.time()
+    
+        best_model_wts = copy.deepcopy(model.state_dict())
+        best_acc = 0.0
+    
+        for epoch in range(num_epochs):
+            print('Epoch {}/{}'.format(epoch+1, num_epochs))
+            print('-' * 10)
+    
+            # Each epoch has a training and validation phase
+            for phase in ['train', 'test']:
+                if phase == 'train':
+                    model.train()  # Set model to training mode
+                else:
+                    model.eval()   # Set model to evaluate mode
+    
+                running_loss = 0.0
+                running_corrects = 0
+    
+                # Iterate over data.
+                for inputs, labels in dataloaders[phase]:
+                    inputs = inputs.to(device)
+                    labels = labels.to(device)
+    
+                    # zero the parameter gradients
+                    optimizer.zero_grad()
+    
+                    # forward
+                    # track history if only in train
+                    with torch.set_grad_enabled(phase == 'train'):
+                        outputs = model(inputs)
+                        _, preds = torch.max(outputs, 1)
+                        print(labels)
+                        print(outputs.size(), labels.size())
+                        loss = criterion(outputs, labels)
+    
+                        # backward + optimize only if in training phase
+                        if phase == 'train':
+                            #sched.step()
+                            loss.backward()
+                            
+                            optimizer.step()
+    
+                    # statistics
+                    running_loss += loss.item() * inputs.size(0)
+                    running_corrects += torch.sum(preds == labels.data)
+    
+                epoch_loss = running_loss / dataset_sizes[phase]
+                epoch_acc = running_corrects.double() / dataset_sizes[phase]
+    
+                print('{} Loss: {:.4f} Acc: {:.4f}'.format(
+                    phase, epoch_loss, epoch_acc))
+    
+                # deep copy the model
+                if phase == 'test' and epoch_acc > best_acc:
+                    best_acc = epoch_acc
+                    best_model_wts = copy.deepcopy(model.state_dict())
+    
+            print()
+    
+        time_elapsed = time.time() - since
+        print('Training complete in {:.0f}m {:.0f}s'.format(
+            time_elapsed // 60, time_elapsed % 60))
+        print('Best val Acc: {:4f}'.format(best_acc))
+    
+        #load best model weights
+        model.load_state_dict(best_model_wts)
+        
+        return model
+
+    epochs = 5
+    model.to(device)
+    model = train_model(model, criterion, optimizer, sched, epochs)
 
 
 
