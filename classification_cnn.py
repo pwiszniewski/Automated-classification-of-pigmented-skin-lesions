@@ -100,10 +100,9 @@ def prepare_datasets(part=False):
     if part:
         gb = df.groupby('dx')    
         df_gb = [gb.get_group(x)[:100] for x in gb.groups]
-        # df_gb = [gb.get_group(x)[:100] for x in gb.groups]
         df = pd.concat(df_gb)
         
-    train_df, test_df = train_test_split(df, test_size=0.2)
+    train_df, test_df = train_test_split(df, test_size=0.2, stratify=df['dx'])
     df_dict = {'train': train_df, 'test': test_df}
     
     data_transforms = {
@@ -292,7 +291,7 @@ if __name__ == '__main__':
         
         return model
 
-    epochs = 5
+    epochs = 30
     model.to(device)
     model = train_model(model, criterion, optimizer, sched, epochs)
 
