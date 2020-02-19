@@ -92,10 +92,17 @@ class DatasetFromImages(Dataset):
         return self.data_len
     
     
-def prepare_datasets():
+def prepare_datasets(part=False):
     img_dir = 'images'
     csv_path = 'data/HAM10000_metadata.csv'
+    
     df = pd.read_csv(csv_path)
+    if part:
+        gb = df.groupby('dx')    
+        df_gb = [gb.get_group(x)[:100] for x in gb.groups]
+        # df_gb = [gb.get_group(x)[:100] for x in gb.groups]
+        df = pd.concat(df_gb)
+        
     train_df, test_df = train_test_split(df, test_size=0.2)
     df_dict = {'train': train_df, 'test': test_df}
     
@@ -135,7 +142,7 @@ def prepare_datasets():
 def classify(clf, X_train, y_train, X_test, cross_val=True):
     pass
 
-def calculate_metrics(pred):
+def calculate_metrics(y_test, pred):
     cm = confusion_matrix(y_test, pred)
     cmn = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] # normalise
     acc = accuracy_score(y_test, pred)
@@ -155,7 +162,7 @@ def show_confusion_matrix(cm, classes):
     
 if __name__ == '__main__':
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    image_datasets, dataloaders, class_names, dataset_sizes = prepare_datasets()
+    image_datasets, dataloaders, class_names, dataset_sizes = prepare_datasets(part=True)
     
     images, labels = next(iter(dataloaders['train']))
     
@@ -249,8 +256,6 @@ if __name__ == '__main__':
                     with torch.set_grad_enabled(phase == 'train'):
                         outputs = model(inputs)
                         _, preds = torch.max(outputs, 1)
-                        print(labels)
-                        print(outputs.size(), labels.size())
                         loss = criterion(outputs, labels)
     
                         # backward + optimize only if in training phase
@@ -291,8 +296,41 @@ if __name__ == '__main__':
     model.to(device)
     model = train_model(model, criterion, optimizer, sched, epochs)
 
+    model.eval()
+    
+    accuracy = 0
+    
+    # nb_classes = 7
+    # confusion_matrix = torch.zeros(nb_classes, nb_classes)
+    # with torch.no_grad():
+    #     for i, (inputs, classes) in enumerate(dataloaders['test']):
+    #         inputs = inputs.to(device)
+    #         classes = classes.to(device)
+    #         outputs = model(inputs)
+    #         _, preds = torch.max(outputs, 1)
+    #         for t, p in zip(classes.view(-1), preds.view(-1)):
+    #                 confusion_matrix[t.long(), p.long()] += 1
+    
+    predlist = torch.zeros(0, dtype=torch.long, device='cpu')
+    lbllist = torch.zeros(0, dtype=torch.long, device='cpu')
 
+    for inputs, labels in dataloaders['test']:
+        inputs, labels = inputs.to(device), labels.to(device)
+        outputs = model(inputs)
+        # Class with the highest probability is our predicted class
+        equality = (labels.data == outputs.max(1)[1])
+        # print(labels.data, outputs.max(1)[1], equality)
+        # Accuracy is number of correct predictions divided by all predictions
+        accuracy += equality.type_as(torch.FloatTensor()).mean()
+        
+        predlist = torch.cat([predlist,outputs.max(1)[1].view(-1).cpu()])
+        lbllist = torch.cat([lbllist,labels.view(-1).cpu()])
 
+        
+    # print("Test accuracy: {:.3f}".format(accuracy/len(dataloaders['test'])))
+    # print(len(dataloaders['test']))
+    acc, precision, recall, f_score, cm, cmn = calculate_metrics(lbllist.numpy(), predlist.numpy())
+    show_confusion_matrix(cm, image_datasets['test'].classes)
 
 
 
