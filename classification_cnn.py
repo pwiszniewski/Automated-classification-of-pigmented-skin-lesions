@@ -294,17 +294,6 @@ if __name__ == '__main__':
     
     accuracy = 0
     
-    # nb_classes = 7
-    # confusion_matrix = torch.zeros(nb_classes, nb_classes)
-    # with torch.no_grad():
-    #     for i, (inputs, classes) in enumerate(dataloaders['test']):
-    #         inputs = inputs.to(device)
-    #         classes = classes.to(device)
-    #         outputs = model(inputs)
-    #         _, preds = torch.max(outputs, 1)
-    #         for t, p in zip(classes.view(-1), preds.view(-1)):
-    #                 confusion_matrix[t.long(), p.long()] += 1
-    
     predlist = torch.zeros(0, dtype=torch.long, device='cpu')
     lbllist = torch.zeros(0, dtype=torch.long, device='cpu')
 
