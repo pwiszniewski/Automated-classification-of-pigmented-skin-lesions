@@ -68,12 +68,6 @@ class DatasetFromImages(Dataset):
         self.encoder = preprocessing.LabelEncoder()
         self.label_arr = torch.from_numpy(self.encoder.fit_transform(self.data_info['dx'])).long()
         self.classes = self.encoder.classes_
-        # self.label_arr = np.asarray(self.data_info['dx'])
-        # self.classes = set(self.label_arr)
-        # # mlb = MultiLabelBinarizer()
-        # # self.label_arr = mlb.fit_transform(self.label_arr)
-        # self.label_arr =  torch.from_numpy(np.asarray([i%7 for i in range(len(self.label_arr))])).long()
-        # Calculate len
         self.data_len = len(self.data_info)
 
     def __getitem__(self, index):
