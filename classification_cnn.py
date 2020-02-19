@@ -161,6 +161,7 @@ def show_confusion_matrix(cm, classes):
     
 if __name__ == '__main__':
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(device)
     image_datasets, dataloaders, class_names, dataset_sizes = prepare_datasets(part=True)
     
     images, labels = next(iter(dataloaders['train']))
@@ -169,11 +170,11 @@ if __name__ == '__main__':
     if model_name == 'densenet':
         model = models.densenet161(pretrained=True)
         num_in_features = 2208
-        print(model)
+        # print(model)
     elif model_name == 'vgg':
         model = models.vgg19(pretrained=True)
         num_in_features = 25088
-        print(model.classifier)
+        # print(model.classifier)
     else:
         print("Unknown model, please choose 'densenet' or 'vgg'")
         
@@ -329,4 +330,6 @@ if __name__ == '__main__':
     # print("Test accuracy: {:.3f}".format(accuracy/len(dataloaders['test'])))
     # print(len(dataloaders['test']))
     acc, precision, recall, f_score, cm, cmn = calculate_metrics(lbllist.numpy(), predlist.numpy())
+    print(f'Accuracy:  {acc:.2f}\nPrecision: {precision.mean():.2f} {precision}\n\
+          Recall:    {recall.mean():.2f} {recall}\nF1_score:  {f_score.mean():.2f} {f_score}')
     show_confusion_matrix(cm, image_datasets['test'].classes)
