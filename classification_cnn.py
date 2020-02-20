@@ -84,7 +84,11 @@ class DatasetFromImages(Dataset):
     def __len__(self):
         return self.data_len
     
-    
+def get_device():
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    return device 
+
+
 def prepare_datasets(part=False):
     img_dir = 'images'
     csv_path = 'data/HAM10000_metadata.csv'
@@ -92,7 +96,7 @@ def prepare_datasets(part=False):
     df = pd.read_csv(csv_path)
     if part:
         gb = df.groupby('dx')    
-        df_gb = [gb.get_group(x)[:10] for x in gb.groups]
+        df_gb = [gb.get_group(x)[:100] for x in gb.groups]
         df = pd.concat(df_gb)
         
     train_df, test_df = train_test_split(df, test_size=0.2, stratify=df['dx'])
@@ -132,8 +136,10 @@ def prepare_datasets(part=False):
     
     return image_datasets, dataloaders, class_names, dataset_sizes
     
+
 def classify(clf, X_train, y_train, X_test, cross_val=True):
     pass
+
 
 def calculate_metrics(y_test, pred):
     cm = confusion_matrix(y_test, pred)
@@ -143,6 +149,11 @@ def calculate_metrics(y_test, pred):
     recall = recall_score(y_test, pred, average=None)
     f_score = f1_score(y_test, pred, average=None)
     return acc, precision, recall, f_score, cm, cmn
+
+
+def print_metrics(acc, precision, recall, f_score):
+    print(f'Accuracy:  {acc:.2f}\nPrecision: {precision.mean():.2f} {precision}\n\
+      Recall:    {recall.mean():.2f} {recall}\nF1_score:  {f_score.mean():.2f} {f_score}')
     
     
 def show_confusion_matrix(cm, classes):
@@ -153,14 +164,8 @@ def show_confusion_matrix(cm, classes):
     plt.title('Confusion Matrix')
     # plt.imshow(cm, cmap='binary')
     
-if __name__ == '__main__':
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print(device)
-    image_datasets, dataloaders, class_names, dataset_sizes = prepare_datasets(part=True)
     
-    # images, labels = next(iter(dataloaders['train']))
-    
-    model_name = 'densenet' #vgg
+def create_model(model_name):
     if model_name == 'densenet':
         model = models.densenet161(pretrained=True)
         num_in_features = 2208
@@ -170,39 +175,13 @@ if __name__ == '__main__':
         num_in_features = 25088
         # print(model.classifier)
     else:
-        print("Unknown model, please choose 'densenet' or 'vgg'")
-        
-
-    # Create classifier
+        print('Unknown model')
+        return None
     for param in model.parameters():
         param.requires_grad = False
-    
-    def build_classifier(num_in_features, hidden_layers, num_out_features):
-       
-        classifier = nn.Sequential()
-        if hidden_layers == None:
-            classifier.add_module('fc0', nn.Linear(num_in_features, 102))
-        else:
-            layer_sizes = zip(hidden_layers[:-1], hidden_layers[1:])
-            classifier.add_module('fc0', nn.Linear(num_in_features, hidden_layers[0]))
-            classifier.add_module('relu0', nn.ReLU())
-            classifier.add_module('drop0', nn.Dropout(.6))
-            classifier.add_module('relu1', nn.ReLU())
-            classifier.add_module('drop1', nn.Dropout(.5))
-            for i, (h1, h2) in enumerate(layer_sizes):
-                classifier.add_module('fc'+str(i+1), nn.Linear(h1, h2))
-                classifier.add_module('relu'+str(i+1), nn.ReLU())
-                classifier.add_module('drop'+str(i+1), nn.Dropout(.5))
-            classifier.add_module('output', nn.Linear(hidden_layers[-1], num_out_features))
-            
-        return classifier
-    
-    hidden_layers = None#[4096, 1024, 256][512, 256, 128]
+    return model, num_in_features
 
-    classifier = build_classifier(num_in_features, hidden_layers, 102)
-    print(classifier)
-    
-     # Only train the classifier parameters, feature parameters are frozen
+def bind_model_classifier(model_name, classifier):
     if model_name == 'densenet':
         model.classifier = classifier
         criterion = nn.CrossEntropyLoss()
@@ -216,103 +195,133 @@ if __name__ == '__main__':
         sched = lr_scheduler.StepLR(optimizer, step_size=4, gamma=0.1)
     else:
         pass
-
-    def train_model(model, criterion, optimizer, sched, num_epochs=5):
-        since = time.time()
-    
-        best_model_wts = copy.deepcopy(model.state_dict())
-        best_acc = 0.0
-    
-        for epoch in range(num_epochs):
-            print('Epoch {}/{}'.format(epoch+1, num_epochs))
-            print('-' * 10)
-    
-            # Each epoch has a training and validation phase
-            for phase in ['train', 'valid']:
-                if phase == 'train':
-                    model.train()  # Set model to training mode
-                else:
-                    model.eval()   # Set model to evaluate mode
-    
-                running_loss = 0.0
-                running_corrects = 0
-    
-                # Iterate over data.
-                for inputs, labels in dataloaders[phase]:
-                    inputs = inputs.to(device)
-                    labels = labels.to(device)
-    
-                    # zero the parameter gradients
-                    optimizer.zero_grad()
-    
-                    # forward
-                    # track history if only in train
-                    with torch.set_grad_enabled(phase == 'train'):
-                        outputs = model(inputs)
-                        _, preds = torch.max(outputs, 1)
-                        loss = criterion(outputs, labels)
-    
-                        # backward + optimize only if in training phase
-                        if phase == 'train':
-                            #sched.step()
-                            loss.backward()
-                            
-                            optimizer.step()
-    
-                    # statistics
-                    running_loss += loss.item() * inputs.size(0)
-                    running_corrects += torch.sum(preds == labels.data)
-    
-                epoch_loss = running_loss / dataset_sizes[phase]
-                epoch_acc = running_corrects.double() / dataset_sizes[phase]
-    
-                print('{} Loss: {:.4f} Acc: {:.4f}'.format(
-                    phase, epoch_loss, epoch_acc))
-    
-                # deep copy the model
-                if phase == 'valid' and epoch_acc > best_acc:
-                    best_acc = epoch_acc
-                    best_model_wts = copy.deepcopy(model.state_dict())
-    
-            print()
-    
-        time_elapsed = time.time() - since
-        print('Training complete in {:.0f}m {:.0f}s'.format(
-            time_elapsed // 60, time_elapsed % 60))
-        print('Best val Acc: {:4f}'.format(best_acc))
-    
-        #load best model weights
-        model.load_state_dict(best_model_wts)
+    return criterion, optimizer, sched
         
-        return model
+        
+def create_classifier(num_in_features, hidden_layers, num_out_features):       
+    classifier = nn.Sequential()
+    if hidden_layers == None:
+        classifier.add_module('fc0', nn.Linear(num_in_features, 102))
+    else:
+        layer_sizes = zip(hidden_layers[:-1], hidden_layers[1:])
+        classifier.add_module('fc0', nn.Linear(num_in_features, hidden_layers[0]))
+        classifier.add_module('relu0', nn.ReLU())
+        classifier.add_module('drop0', nn.Dropout(.6))
+        classifier.add_module('relu1', nn.ReLU())
+        classifier.add_module('drop1', nn.Dropout(.5))
+        for i, (h1, h2) in enumerate(layer_sizes):
+            classifier.add_module('fc'+str(i+1), nn.Linear(h1, h2))
+            classifier.add_module('relu'+str(i+1), nn.ReLU())
+            classifier.add_module('drop'+str(i+1), nn.Dropout(.5))
+        classifier.add_module('output', nn.Linear(hidden_layers[-1], num_out_features))
+        
+    return classifier
 
-    epochs = 30
-    model.to(device)
-    model = train_model(model, criterion, optimizer, sched, epochs)
 
-    model.eval()
+def train_model(model, criterion, optimizer, sched, num_epochs=5):
+    since = time.time()
+
+    best_model_wts = copy.deepcopy(model.state_dict())
+    best_acc = 0.0
+
+    for epoch in range(num_epochs):
+        print('Epoch {}/{}'.format(epoch+1, num_epochs))
+        print('-' * 10)
+
+        # Each epoch has a training and validation phase
+        for phase in ['train', 'valid']:
+            if phase == 'train':
+                model.train()  # Set model to training mode
+            else:
+                model.eval()   # Set model to evaluate mode
+
+            running_loss = 0.0
+            running_corrects = 0
+
+            # Iterate over data.
+            for inputs, labels in dataloaders[phase]:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+
+                # zero the parameter gradients
+                optimizer.zero_grad()
+
+                # forward
+                # track history if only in train
+                with torch.set_grad_enabled(phase == 'train'):
+                    outputs = model(inputs)
+                    _, preds = torch.max(outputs, 1)
+                    loss = criterion(outputs, labels)
+
+                    # backward + optimize only if in training phase
+                    if phase == 'train':
+                        #sched.step()
+                        loss.backward()
+                        
+                        optimizer.step()
+
+                # statistics
+                running_loss += loss.item() * inputs.size(0)
+                running_corrects += torch.sum(preds == labels.data)
+
+            epoch_loss = running_loss / dataset_sizes[phase]
+            epoch_acc = running_corrects.double() / dataset_sizes[phase]
+
+            print('{} Loss: {:.4f} Acc: {:.4f}'.format(
+                phase, epoch_loss, epoch_acc))
+
+            # deep copy the model
+            if phase == 'valid' and epoch_acc > best_acc:
+                best_acc = epoch_acc
+                best_model_wts = copy.deepcopy(model.state_dict())
+
+        print()
+
+    time_elapsed = time.time() - since
+    print('Training complete in {:.0f}m {:.0f}s'.format(
+        time_elapsed // 60, time_elapsed % 60))
+    print('Best val Acc: {:4f}'.format(best_acc))
+
+    #load best model weights
+    model.load_state_dict(best_model_wts)
     
-    accuracy = 0
-    
+    return model
+
+
+def predict(model, dataloaders):
     predlist = torch.zeros(0, dtype=torch.long, device='cpu')
     lbllist = torch.zeros(0, dtype=torch.long, device='cpu')
 
     for inputs, labels in dataloaders['test']:
         inputs, labels = inputs.to(device), labels.to(device)
         outputs = model(inputs)
-        # Class with the highest probability is our predicted class
-        equality = (labels.data == outputs.max(1)[1])
-        # print(labels.data, outputs.max(1)[1], equality)
-        # Accuracy is number of correct predictions divided by all predictions
-        accuracy += equality.type_as(torch.FloatTensor()).mean()
-        
+        # Class with the highest probability is our predicted class     
         predlist = torch.cat([predlist,outputs.max(1)[1].view(-1).cpu()])
         lbllist = torch.cat([lbllist,labels.view(-1).cpu()])
-
         
-    # print("Test accuracy: {:.3f}".format(accuracy/len(dataloaders['test'])))
-    # print(len(dataloaders['test']))
+    return lbllist, predlist
+    
+if __name__ == '__main__':
+    device = get_device()
+    print(device)
+    
+    image_datasets, dataloaders, class_names, dataset_sizes = prepare_datasets(part=True)
+    # images, labels = next(iter(dataloaders['train']))
+    
+    model_name = 'densenet'
+    model, num_in_features = create_model('densenet')
+
+    hidden_layers = None #[4096, 1024, 256][512, 256, 128]
+    classifier = create_classifier(num_in_features, hidden_layers, 102)
+    criterion, optimizer, sched = bind_model_classifier(model_name, classifier)
+    
+    epochs = 30
+    model.to(device)
+    model = train_model(model, criterion, optimizer, sched, epochs)
+
+    model.eval()
+    lbllist, predlist = predict(model, dataloaders)
+
     acc, precision, recall, f_score, cm, cmn = calculate_metrics(lbllist.numpy(), predlist.numpy())
-    print(f'Accuracy:  {acc:.2f}\nPrecision: {precision.mean():.2f} {precision}\n\
-          Recall:    {recall.mean():.2f} {recall}\nF1_score:  {f_score.mean():.2f} {f_score}')
+    print_metrics(acc, precision, recall, f_score)
     show_confusion_matrix(cm, image_datasets['test'].classes)
