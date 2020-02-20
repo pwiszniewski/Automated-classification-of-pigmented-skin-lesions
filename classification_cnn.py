@@ -28,7 +28,6 @@ from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier
 
 import time
-import json
 import copy
 
 import matplotlib.pyplot as plt
@@ -93,11 +92,12 @@ def prepare_datasets(part=False):
     df = pd.read_csv(csv_path)
     if part:
         gb = df.groupby('dx')    
-        df_gb = [gb.get_group(x)[:100] for x in gb.groups]
+        df_gb = [gb.get_group(x)[:10] for x in gb.groups]
         df = pd.concat(df_gb)
         
     train_df, test_df = train_test_split(df, test_size=0.2, stratify=df['dx'])
-    df_dict = {'train': train_df, 'test': test_df}
+    train_df, valid_df = train_test_split(train_df, test_size=0.2)
+    df_dict = {'train': train_df, 'valid': valid_df, 'test': test_df}
     
     data_transforms = {
         'train': transforms.Compose([
@@ -108,7 +108,7 @@ def prepare_datasets(part=False):
             transforms.Normalize([0.485, 0.456, 0.406], 
                                  [0.229, 0.224, 0.225])
         ]),
-        'test': transforms.Compose([
+        'valid': transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
             transforms.ToTensor(),
@@ -116,19 +116,19 @@ def prepare_datasets(part=False):
                                  [0.229, 0.224, 0.225])
         ])
     }
-    
-    # Load the datasets with ImageFolder
+    data_transforms['test'] = data_transforms['valid']
+
     image_datasets = {x: DatasetFromImages(df_dict[x], img_dir, data_transforms[x])  \
-                      for x in ['train', 'test']}
+                      for x in ['train', 'valid', 'test']}
     
     # Using the image datasets and the trainforms, define the dataloaders
     batch_size = 64
     dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=batch_size,
                                                  shuffle=True, num_workers=0)
-                  for x in ['train', 'test']}
+                  for x in ['train', 'valid', 'test']}
     
     class_names = image_datasets['train'].classes
-    dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'test']}
+    dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'valid', 'test']}
     
     return image_datasets, dataloaders, class_names, dataset_sizes
     
@@ -158,7 +158,7 @@ if __name__ == '__main__':
     print(device)
     image_datasets, dataloaders, class_names, dataset_sizes = prepare_datasets(part=True)
     
-    images, labels = next(iter(dataloaders['train']))
+    # images, labels = next(iter(dataloaders['train']))
     
     model_name = 'densenet' #vgg
     if model_name == 'densenet':
@@ -228,7 +228,7 @@ if __name__ == '__main__':
             print('-' * 10)
     
             # Each epoch has a training and validation phase
-            for phase in ['train', 'test']:
+            for phase in ['train', 'valid']:
                 if phase == 'train':
                     model.train()  # Set model to training mode
                 else:
@@ -270,7 +270,7 @@ if __name__ == '__main__':
                     phase, epoch_loss, epoch_acc))
     
                 # deep copy the model
-                if phase == 'test' and epoch_acc > best_acc:
+                if phase == 'valid' and epoch_acc > best_acc:
                     best_acc = epoch_acc
                     best_model_wts = copy.deepcopy(model.state_dict())
     
