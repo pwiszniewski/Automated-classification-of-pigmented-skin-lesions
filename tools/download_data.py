@@ -37,8 +37,8 @@ def remove_file(file_path):
   if os.path.isfile(file_path):
 	  os.remove(file_path)
 
-images_path = '../images'
-data_path = '../data'
+images_path = './images'
+data_path = './data'
 Path(images_path).mkdir(parents=True, exist_ok=True)
 Path(data_path).mkdir(parents=True, exist_ok=True)
 

@@ -25,8 +25,6 @@ from sklearn.feature_selection import SelectKBest
 from sklearn.feature_selection import chi2
 from sklearn.preprocessing import LabelEncoder
 
-from xgboost import XGBClassifier
-
 import time
 import copy
 
@@ -135,35 +133,7 @@ def prepare_datasets(part=False):
     dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'valid', 'test']}
     
     return image_datasets, dataloaders, class_names, dataset_sizes
-    
 
-def classify(clf, X_train, y_train, X_test, cross_val=True):
-    pass
-
-
-def calculate_metrics(y_test, pred):
-    cm = confusion_matrix(y_test, pred)
-    cmn = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] # normalise
-    acc = accuracy_score(y_test, pred)
-    precision = precision_score(y_test, pred, average=None)
-    recall = recall_score(y_test, pred, average=None)
-    f_score = f1_score(y_test, pred, average=None)
-    return acc, precision, recall, f_score, cm, cmn
-
-
-def print_metrics(acc, precision, recall, f_score):
-    print(f'Accuracy:  {acc:.2f}\nPrecision: {precision.mean():.2f} {precision}\n\
-      Recall:    {recall.mean():.2f} {recall}\nF1_score:  {f_score.mean():.2f} {f_score}')
-    
-    
-def show_confusion_matrix(cm, classes):
-    df_cm = pd.DataFrame(cm, classes, classes)
-    sns.heatmap(df_cm, annot=True)
-    plt.ylabel('True Label')
-    plt.xlabel('Predicted Label')
-    plt.title('Confusion Matrix')
-    # plt.imshow(cm, cmap='binary')
-    
     
 def create_model(model_name):
     if model_name == 'densenet':
@@ -289,6 +259,7 @@ def train_model(model, criterion, optimizer, sched, num_epochs=5):
 
 
 def predict(model, dataloaders):
+    model.eval()
     predlist = torch.zeros(0, dtype=torch.long, device='cpu')
     lbllist = torch.zeros(0, dtype=torch.long, device='cpu')
 
@@ -300,6 +271,31 @@ def predict(model, dataloaders):
         lbllist = torch.cat([lbllist,labels.view(-1).cpu()])
         
     return lbllist, predlist
+
+
+def calculate_metrics(y_test, pred):
+    cm = confusion_matrix(y_test, pred)
+    cmn = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis] # normalise
+    acc = accuracy_score(y_test, pred)
+    precision = precision_score(y_test, pred, average=None)
+    recall = recall_score(y_test, pred, average=None)
+    f_score = f1_score(y_test, pred, average=None)
+    return acc, precision, recall, f_score, cm, cmn
+
+
+def print_metrics(acc, precision, recall, f_score):
+    print(f'Accuracy:  {acc:.2f}\nPrecision: {precision.mean():.2f} {precision}\n\
+      Recall:    {recall.mean():.2f} {recall}\nF1_score:  {f_score.mean():.2f} {f_score}')
+    
+    
+def show_confusion_matrix(cm, classes):
+    df_cm = pd.DataFrame(cm, classes, classes)
+    sns.heatmap(df_cm, annot=True)
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.title('Confusion Matrix')
+    plt.show()
+    
     
 if __name__ == '__main__':
     device = get_device()
@@ -319,7 +315,6 @@ if __name__ == '__main__':
     model.to(device)
     model = train_model(model, criterion, optimizer, sched, epochs)
 
-    model.eval()
     lbllist, predlist = predict(model, dataloaders)
 
     acc, precision, recall, f_score, cm, cmn = calculate_metrics(lbllist.numpy(), predlist.numpy())
