@@ -319,4 +319,4 @@ if __name__ == '__main__':
 
     acc, precision, recall, f_score, cm, cmn = calculate_metrics(lbllist.numpy(), predlist.numpy())
     print_metrics(acc, precision, recall, f_score)
-    show_confusion_matrix(cm, image_datasets['test'].classes)
+    show_confusion_matrix(cmn, image_datasets['test'].classes)
