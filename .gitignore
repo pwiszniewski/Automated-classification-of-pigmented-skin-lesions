@@ -121,3 +121,6 @@ GitHub.sublime-settings
 
 # other
 images/
+
+# ohter
+cpp/build/*
