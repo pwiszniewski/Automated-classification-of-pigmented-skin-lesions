@@ -5,6 +5,8 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <algorithm>
+#include <random>
 
 struct Options {
   int image_size = 224;
@@ -24,8 +26,14 @@ static Options options;
 
 using Data = std::vector<std::pair<std::string, std::string>>;
 
-std::pair<Data, Data> readInfo() {
-  Data train, test;
+void print_data(const Data& data) {
+  for (auto& d : data) {
+    std::cout << d.first << " " << d.second << std::endl;
+  }
+}
+
+Data read_info() {
+  Data data;
 
   std::ifstream stream(options.csv_path);
   assert(stream.is_open());
@@ -52,17 +60,84 @@ std::pair<Data, Data> readInfo() {
       nword++;
     }
     nline++;
-    train.push_back(std::make_pair(path, label));    
+    data.push_back(std::make_pair(path, label));    
     
   }
   stream.close();
-  for (int i = 0; i < train.size(); i++) {
-    if (i < 10 or i > 10010)
-      std::cout << i << " " << train[i].first << " " << train[i].second << std::endl;
-  }
-  
-  return std::make_pair(train, test);
+
+  return data;
 }
+
+
+std::map<std::string, Data> group_data_by_label(Data data) {
+  std::map<std::string, Data > data_by_label;
+  for (const auto & d : data) data_by_label[d.second].push_back(d);
+  return data_by_label;
+}
+
+
+void shuffle_data(Data& data) {
+  static auto rng = std::default_random_engine {};
+  std::shuffle(std::begin(data), std::end(data), rng);
+}
+
+
+Data concatenate_data_map(std::map<std::string, Data > data_map) {
+  Data data;
+  for (const auto& [key, d] : data_map) {
+    data.insert(
+      data.end(),
+      std::make_move_iterator(d.begin()),
+      std::make_move_iterator(d.end())
+    );
+  }
+  return data;
+}
+
+void get_n_first_elements_for_each_key(std::map<std::string, Data>& data_map, int n) {
+  for (const auto& [key, data] : data_map) {
+      data_map[key].resize(n);
+  }
+}
+
+
+std::pair<Data, Data> train_test_split(Data data, float test_size, bool stratify=false) {
+  if (stratify == true) {
+    std::map<std::string, Data> train_data_map, test_data_map;
+    auto data_by_label = group_data_by_label(data);
+    for (const auto& [key, d] : data_by_label) {
+      std::size_t const split_size = d.size() * test_size;
+      Data train_data(d.begin() + split_size, d.end());
+      Data test_data(d.begin(), d.begin() + split_size);
+      train_data_map[key] = train_data;
+      test_data_map[key] = test_data;
+    }
+    Data train_data = concatenate_data_map(train_data_map);
+    Data test_data = concatenate_data_map(test_data_map);
+    shuffle_data(train_data);
+    shuffle_data(test_data);
+    return std::make_pair(train_data, test_data); 
+  }
+  else {
+    std::size_t const split_size = data.size() * test_size;
+    Data train_data(data.begin() + split_size, data.end());
+    Data test_data(data.begin(), data.begin() + split_size);
+    return std::make_pair(train_data, test_data); 
+  }
+}
+
+
+void prepare_datasets() {
+  Data data = read_info();
+  shuffle_data(data);
+  auto data_by_label = group_data_by_label(data);
+  get_n_first_elements_for_each_key(data_by_label, 10);
+  data = concatenate_data_map(data_by_label);
+  auto train_test_data = train_test_split(data, 0.2, true);
+  Data train_data = train_test_data.first;
+  Data test_data = train_test_data.second;
+}
+
 
 int main() {
   torch::manual_seed(1);
@@ -72,7 +147,7 @@ int main() {
   std::cout << "Running on: "
             << (options.device == torch::kCUDA ? "CUDA" : "CPU") << std::endl;
 
-  auto data = readInfo();
+  prepare_datasets();
 
   std::cout << "END";
   return 0;
