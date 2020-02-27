@@ -26,6 +26,49 @@ static Options options;
 
 using Data = std::vector<std::pair<std::string, std::string>>;
 
+class DatasetFromImages : public torch::data::datasets::Dataset<DatasetFromImages> {
+  using Example = torch::data::Example<>;
+
+  Data data;
+
+ public:
+  DatasetFromImages(const Data& data) : data(data) {}
+
+  Example get(size_t index) {
+    std::string path = options.images_path + data[index].first;
+    auto mat = cv::imread(path);
+    assert(!mat.empty());
+
+    cv::resize(mat, mat, cv::Size(options.image_size, options.image_size));
+    std::vector<cv::Mat> channels(3);
+    cv::split(mat, channels);
+
+    auto R = torch::from_blob(
+        channels[2].ptr(),
+        {options.image_size, options.image_size},
+        torch::kUInt8);
+    auto G = torch::from_blob(
+        channels[1].ptr(),
+        {options.image_size, options.image_size},
+        torch::kUInt8);
+    auto B = torch::from_blob(
+        channels[0].ptr(),
+        {options.image_size, options.image_size},
+        torch::kUInt8);
+
+    auto tdata = torch::cat({R, G, B})
+                     .view({3, options.image_size, options.image_size})
+                     .to(torch::kFloat);
+    auto tlabel = torch::from_blob(&data[index].second, {1}, torch::kLong);
+    return {tdata, tlabel};
+  }
+
+  torch::optional<size_t> size() const {
+    return data.size();
+  }
+};
+
+
 void print_data(const Data& data) {
   for (auto& d : data) {
     std::cout << d.first << " " << d.second << std::endl;
@@ -52,7 +95,7 @@ Data read_info() {
     int nword = 0;
     while (std::getline(ss, word, ',')) { 
       if (nword == 1) {
-        path = options.images_path + word;
+        path = word;
       }
       else if (nword == 2) {
         label = word;
@@ -136,6 +179,20 @@ void prepare_datasets() {
   auto train_test_data = train_test_split(data, 0.2, true);
   Data train_data = train_test_data.first;
   Data test_data = train_test_data.second;
+
+  auto train_set =
+      DatasetFromImages(train_data).map(torch::data::transforms::Stack<>());
+  auto train_size = train_set.size().value();
+  auto train_loader =
+      torch::data::make_data_loader<torch::data::samplers::SequentialSampler>(
+          std::move(train_set), options.train_batch_size);
+
+  auto test_set =
+      DatasetFromImages(test_data).map(torch::data::transforms::Stack<>());
+  auto test_size = test_set.size().value();
+  auto test_loader =
+      torch::data::make_data_loader<torch::data::samplers::SequentialSampler>(
+          std::move(test_set), options.test_batch_size);
 }
 
 
