@@ -10,34 +10,17 @@
 
 struct Options {
   int image_size = 224;
-  size_t train_batch_size = 32;
-  size_t test_batch_size = 200;
-  size_t iterations = 10;
+  size_t train_batch_size = 8;
+  size_t test_batch_size = 32;
+  size_t iterations = 30;
   size_t log_interval = 20;
   // path must end in delimiter
   std::string images_path = "../../images/";
   std::string csv_path = "../../data/HAM10000_metadata.csv";
-  // std::string datasetPath = "./dataset/";
-  // std::string infoFilePath = "info.txt";
   torch::DeviceType device = torch::kCPU;
 };
 
 static Options options;
-
-// class myClass {
-//   private:
-//     static std::map<std::string,int> map_label_to_num;
-// };
-
-// std::map<std::string,int> myClass::map_label_to_num = {
-//    {"akiec", 0},
-//    {"bcc", 1},
-//    {"bkl", 2},
-//    {"df", 3},
-//    {"mel", 4},
-//    {"nv", 5},
-//    {"vasc", 6}
-// };
 
 using Data = std::vector<std::pair<std::string, long>>;
 
