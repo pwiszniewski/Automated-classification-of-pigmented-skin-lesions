@@ -67,6 +67,13 @@ class DatasetFromImages : public torch::data::datasets::Dataset<DatasetFromImage
 };
 
 
+void init_device() {
+  if (torch::cuda::is_available())
+  options.device = torch::kCUDA;
+  std::cout << "Running on: "
+            << (options.device == torch::kCUDA ? "CUDA" : "CPU") << std::endl;
+}
+
 void print_data(const Data& data) {
   for (auto& d : data) {
     std::cout << d.first << " " << d.second << std::endl;
@@ -292,11 +299,6 @@ void test(Network& network, DataLoader& loader, size_t data_size) {
 
 int main() {
   torch::manual_seed(1);
-
-  if (torch::cuda::is_available())
-    options.device = torch::kCUDA;
-  std::cout << "Running on: "
-            << (options.device == torch::kCUDA ? "CUDA" : "CPU") << std::endl;
 
   auto data = prepare_datasets();
 
